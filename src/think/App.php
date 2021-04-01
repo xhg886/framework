@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -12,24 +12,40 @@ declare (strict_types = 1);
 
 namespace think;
 
-use Opis\Closure\SerializableClosure;
-use think\exception\ClassNotFoundException;
+use think\event\AppInit;
+use think\helper\Str;
 use think\initializer\BootService;
 use think\initializer\Error;
 use think\initializer\RegisterService;
 
 /**
  * App 基础类
+ * @property Route      $route
+ * @property Config     $config
+ * @property Cache      $cache
+ * @property Request    $request
+ * @property Http       $http
+ * @property Console    $console
+ * @property Env        $env
+ * @property Event      $event
+ * @property Middleware $middleware
+ * @property Log        $log
+ * @property Lang       $lang
+ * @property Db         $db
+ * @property Cookie     $cookie
+ * @property Session    $session
+ * @property Validate   $validate
+ * @property Filesystem $filesystem
  */
 class App extends Container
 {
-    const VERSION = '6.0.0RC1';
+    const VERSION = '6.0.7';
 
     /**
      * 应用调试模式
      * @var bool
      */
-    protected $appDebug = true;
+    protected $appDebug = false;
 
     /**
      * 应用开始时间
@@ -74,6 +90,12 @@ class App extends Container
     protected $runtimePath = '';
 
     /**
+     * 路由定义目录
+     * @var string
+     */
+    protected $routePath = '';
+
+    /**
      * 配置后缀
      * @var string
      */
@@ -102,6 +124,38 @@ class App extends Container
     protected $initialized = false;
 
     /**
+     * 容器绑定标识
+     * @var array
+     */
+    protected $bind = [
+        'app'                     => App::class,
+        'cache'                   => Cache::class,
+        'config'                  => Config::class,
+        'console'                 => Console::class,
+        'cookie'                  => Cookie::class,
+        'db'                      => Db::class,
+        'env'                     => Env::class,
+        'event'                   => Event::class,
+        'http'                    => Http::class,
+        'lang'                    => Lang::class,
+        'log'                     => Log::class,
+        'middleware'              => Middleware::class,
+        'request'                 => Request::class,
+        'response'                => Response::class,
+        'route'                   => Route::class,
+        'session'                 => Session::class,
+        'validate'                => Validate::class,
+        'view'                    => View::class,
+        'filesystem'              => Filesystem::class,
+        'think\DbManager'         => Db::class,
+        'think\LogManager'        => Log::class,
+        'think\CacheManager'      => Cache::class,
+
+        // 接口依赖注入
+        'Psr\Log\LoggerInterface' => Log::class,
+    ];
+
+    /**
      * 架构方法
      * @access public
      * @param string $rootPath 应用根目录
@@ -109,9 +163,13 @@ class App extends Container
     public function __construct(string $rootPath = '')
     {
         $this->thinkPath   = dirname(__DIR__) . DIRECTORY_SEPARATOR;
-        $this->rootPath    = $rootPath ? realpath($rootPath) . DIRECTORY_SEPARATOR : $this->getDefaultRootPath();
+        $this->rootPath    = $rootPath ? rtrim($rootPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR : $this->getDefaultRootPath();
         $this->appPath     = $this->rootPath . 'app' . DIRECTORY_SEPARATOR;
         $this->runtimePath = $this->rootPath . 'runtime' . DIRECTORY_SEPARATOR;
+
+        if (is_file($this->appPath . 'provider.php')) {
+            $this->bind(include $this->appPath . 'provider.php');
+        }
 
         static::setInstance($this);
 
@@ -140,6 +198,10 @@ class App extends Container
 
         if (method_exists($service, 'register')) {
             $service->register();
+        }
+
+        if (property_exists($service, 'bind')) {
+            $this->bind($service->bind);
         }
 
         $this->services[] = $service;
@@ -257,9 +319,9 @@ class App extends Container
 
     /**
      * 设置应用目录
-     * @param $path
+     * @param string $path 应用目录
      */
-    public function setAppPath($path)
+    public function setAppPath(string $path)
     {
         $this->appPath = $path;
     }
@@ -276,9 +338,9 @@ class App extends Container
 
     /**
      * 设置runtime目录
-     * @param $path
+     * @param string $path 定义目录
      */
-    public function setRuntimePath($path)
+    public function setRuntimePath(string $path): void
     {
         $this->runtimePath = $path;
     }
@@ -352,18 +414,21 @@ class App extends Container
 
         $this->configExt = $this->env->get('config_ext', '.php');
 
-        // 加载全局初始化文件
-        if (is_file($this->getRuntimePath() . 'init.php')) {
-            //直接加载缓存
-            include $this->getRuntimePath() . 'init.php';
-        } else {
-            $this->load();
-        }
-
         $this->debugModeInit();
 
+        // 加载全局初始化文件
+        $this->load();
+
+        // 加载框架默认语言包
+        $langSet = $this->lang->defaultLangSet();
+
+        $this->lang->load($this->thinkPath . 'lang' . DIRECTORY_SEPARATOR . $langSet . '.php');
+
+        // 加载应用默认语言包
+        $this->loadLangPack($langSet);
+
         // 监听AppInit
-        $this->event->trigger('AppInit');
+        $this->event->trigger(AppInit::class);
 
         date_default_timezone_set($this->config->get('app.default_timezone', 'Asia/Shanghai'));
 
@@ -382,6 +447,29 @@ class App extends Container
     public function initialized()
     {
         return $this->initialized;
+    }
+
+    /**
+     * 加载语言包
+     * @param string $langset 语言
+     * @return void
+     */
+    public function loadLangPack($langset)
+    {
+        if (empty($langset)) {
+            return;
+        }
+
+        // 加载系统语言包
+        $files = glob($this->appPath . 'lang' . DIRECTORY_SEPARATOR . $langset . '.*');
+        $this->lang->load($files);
+
+        // 加载扩展（自定义）语言包
+        $list = $this->config->get('lang.extend_list', []);
+
+        if (isset($list[$langset])) {
+            $this->lang->load($list[$langset]);
+        }
     }
 
     /**
@@ -409,7 +497,7 @@ class App extends Container
             include_once $appPath . 'common.php';
         }
 
-        include $this->thinkPath . 'helper.php';
+        include_once $this->thinkPath . 'helper.php';
 
         $configPath = $this->getConfigPath();
 
@@ -427,8 +515,11 @@ class App extends Container
             $this->loadEvent(include $appPath . 'event.php');
         }
 
-        if (is_file($appPath . 'provider.php')) {
-            $this->bind(include $appPath . 'provider.php');
+        if (is_file($appPath . 'service.php')) {
+            $services = include $appPath . 'service.php';
+            foreach ($services as $service) {
+                $this->register($service);
+            }
         }
     }
 
@@ -442,11 +533,10 @@ class App extends Container
         // 应用调试模式
         if (!$this->appDebug) {
             $this->appDebug = $this->env->get('app_debug') ? true : false;
+            ini_set('display_errors', 'Off');
         }
 
-        if (!$this->appDebug) {
-            ini_set('display_errors', 'Off');
-        } elseif (!$this->runningInConsole()) {
+        if (!$this->runningInConsole()) {
             //重新申请一块比较大的buffer
             if (ob_get_level() > 0) {
                 $output = ob_get_clean();
@@ -490,7 +580,7 @@ class App extends Container
     {
         $name  = str_replace(['/', '.'], '\\', $name);
         $array = explode('\\', $name);
-        $class = self::parseName(array_pop($array), 1);
+        $class = Str::studly(array_pop($array));
         $path  = $array ? implode('\\', $array) . '\\' : '';
 
         return $this->namespace . '\\' . $layer . '\\' . $path . $class;
@@ -512,77 +602,7 @@ class App extends Container
      */
     protected function getDefaultRootPath(): string
     {
-        $path = dirname(dirname(dirname(dirname($this->thinkPath))));
-
-        return $path . DIRECTORY_SEPARATOR;
+        return dirname($this->thinkPath, 4) . DIRECTORY_SEPARATOR;
     }
 
-    /**
-     * 字符串命名风格转换
-     * type 0 将Java风格转换为C的风格 1 将C风格转换为Java的风格
-     * @access public
-     * @param string  $name    字符串
-     * @param integer $type    转换类型
-     * @param bool    $ucfirst 首字母是否大写（驼峰规则）
-     * @return string
-     */
-    public static function parseName(string $name = null, int $type = 0, bool $ucfirst = true): string
-    {
-        if ($type) {
-            $name = preg_replace_callback('/_([a-zA-Z])/', function ($match) {
-                return strtoupper($match[1]);
-            }, $name);
-            return $ucfirst ? ucfirst($name) : lcfirst($name);
-        }
-
-        return strtolower(trim(preg_replace("/[A-Z]/", "_\\0", $name), "_"));
-    }
-
-    /**
-     * 获取类名(不包含命名空间)
-     * @access public
-     * @param string|object $class
-     * @return string
-     */
-    public static function classBaseName($class): string
-    {
-        $class = is_object($class) ? get_class($class) : $class;
-        return basename(str_replace('\\', '/', $class));
-    }
-
-    /**
-     * 创建工厂对象实例
-     * @access public
-     * @param string $name      工厂类名
-     * @param string $namespace 默认命名空间
-     * @return mixed
-     */
-    public static function factory(string $name, string $namespace = '', ...$args)
-    {
-        $class = false !== strpos($name, '\\') ? $name : $namespace . ucwords($name);
-
-        if (class_exists($class)) {
-            return Container::getInstance()->invokeClass($class, $args);
-        }
-
-        throw new ClassNotFoundException('class not exists:' . $class, $class);
-    }
-
-    public static function serialize($data): string
-    {
-        SerializableClosure::enterContext();
-        SerializableClosure::wrapClosures($data);
-        $data = \serialize($data);
-        SerializableClosure::exitContext();
-        return $data;
-    }
-
-    public static function unserialize(string $data)
-    {
-        SerializableClosure::enterContext();
-        $data = \unserialize($data);
-        SerializableClosure::unwrapClosures($data);
-        SerializableClosure::exitContext();
-        return $data;
-    }
 }

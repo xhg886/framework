@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -12,9 +12,11 @@ declare (strict_types = 1);
 
 namespace think;
 
-use think\response\Redirect as RedirectResponse;
-
-class Response
+/**
+ * 响应输出基础类
+ * @package think
+ */
+abstract class Response
 {
     /**
      * 原始数据
@@ -65,12 +67,24 @@ class Response
     protected $content = null;
 
     /**
-     * 架构函数
-     * @access public
-     * @param  mixed $data    输出数据
-     * @param  int   $code
+     * Cookie对象
+     * @var Cookie
      */
-    public function __construct($data = '', int $code = 200)
+    protected $cookie;
+
+    /**
+     * Session对象
+     * @var Session
+     */
+    protected $session;
+
+    /**
+     * 初始化
+     * @access protected
+     * @param  mixed  $data 输出数据
+     * @param  int    $code 状态码
+     */
+    protected function init($data = '', int $code = 200)
     {
         $this->data($data);
         $this->code = $code;
@@ -81,20 +95,28 @@ class Response
     /**
      * 创建Response对象
      * @access public
-     * @param  mixed  $data    输出数据
-     * @param  string $type    输出类型
-     * @param  int    $code
+     * @param  mixed  $data 输出数据
+     * @param  string $type 输出类型
+     * @param  int    $code 状态码
      * @return Response
      */
-    public static function create($data = '', string $type = '', int $code = 200): Response
+    public static function create($data = '', string $type = 'html', int $code = 200): Response
     {
         $class = false !== strpos($type, '\\') ? $type : '\\think\\response\\' . ucfirst(strtolower($type));
 
-        if (class_exists($class)) {
-            return new $class($data, $code);
-        }
+        return Container::getInstance()->invokeClass($class, [$data, $code]);
+    }
 
-        return new static($data, $code);
+    /**
+     * 设置Session对象
+     * @access public
+     * @param  Session $session Session对象
+     * @return $this
+     */
+    public function setSession(Session $session)
+    {
+        $this->session = $session;
+        return $this;
     }
 
     /**
@@ -105,22 +127,8 @@ class Response
      */
     public function send(): void
     {
-        // 监听response_send
-        Container::pull('event')->trigger('ResponseSend', $this);
-
         // 处理输出数据
         $data = $this->getContent();
-
-        if (200 == $this->code && $this->allowCache) {
-            $cache = Container::pull('request')->getCache();
-            if ($cache) {
-                $this->header['Cache-Control'] = 'max-age=' . $cache[1] . ',must-revalidate';
-                $this->header['Last-Modified'] = gmdate('D, d M Y H:i:s') . ' GMT';
-                $this->header['Expires']       = gmdate('D, d M Y H:i:s', $_SERVER['REQUEST_TIME'] + $cache[1]) . ' GMT';
-
-                Container::pull('cache')->tag($cache[2])->set($cache[0], [$data, $this->header], $cache[1]);
-            }
-        }
 
         if (!headers_sent() && !empty($this->header)) {
             // 发送状态码
@@ -130,22 +138,15 @@ class Response
                 header($name . (!is_null($val) ? ':' . $val : ''));
             }
         }
-
-        Container::pull('cookie')->save();
+        if ($this->cookie) {
+            $this->cookie->save();
+        }
 
         $this->sendData($data);
 
         if (function_exists('fastcgi_finish_request')) {
             // 提高页面响应
             fastcgi_finish_request();
-        }
-
-        // 监听response_end
-        Container::pull('event')->trigger('ResponseEnd', $this);
-
-        // 清空当次请求有效的数据
-        if (!($this instanceof RedirectResponse)) {
-            Container::pull('session')->flush();
         }
     }
 
@@ -206,6 +207,31 @@ class Response
     public function allowCache(bool $cache)
     {
         $this->allowCache = $cache;
+
+        return $this;
+    }
+
+    /**
+     * 是否允许请求缓存
+     * @access public
+     * @return bool
+     */
+    public function isAllowCache()
+    {
+        return $this->allowCache;
+    }
+
+    /**
+     * 设置Cookie
+     * @access public
+     * @param  string $name  cookie名称
+     * @param  string $value cookie值
+     * @param  mixed  $option 可选参数
+     * @return $this
+     */
+    public function cookie(string $name, string $value, $option = null)
+    {
+        $this->cookie->set($name, $value, $option);
 
         return $this;
     }

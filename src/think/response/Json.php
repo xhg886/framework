@@ -2,17 +2,22 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
+declare (strict_types = 1);
 
 namespace think\response;
 
+use think\Cookie;
 use think\Response;
 
+/**
+ * Json Response
+ */
 class Json extends Response
 {
     // 输出参数
@@ -21,6 +26,12 @@ class Json extends Response
     ];
 
     protected $contentType = 'application/json';
+
+    public function __construct(Cookie $cookie, $data = '', int $code = 200)
+    {
+        $this->init($data, $code);
+        $this->cookie = $cookie;
+    }
 
     /**
      * 处理数据

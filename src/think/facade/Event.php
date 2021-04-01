@@ -2,12 +2,13 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
+declare (strict_types = 1);
 
 namespace think\facade;
 
@@ -15,14 +16,17 @@ use think\Facade;
 
 /**
  * @see \think\Event
+ * @package think\facade
  * @mixin \think\Event
- * @method \think\Event bind(mixed $name, mixed $event = null) static 指定事件别名
- * @method \think\Event listen(string $event, mixed $listener) static 注册事件监听
- * @method \think\Event listenEvents(array $events) static 批量注册事件监听
- * @method \think\Event observe(mixed $observer) static 注册事件观察者
- * @method bool hasEvent(string $event) static 判断事件是否存在监听
- * @method void remove(string $event) static 移除事件监听
- * @method mixed trigger(string $event, mixed $params = null, bool $once = false) static 触发事件
+ * @method static \think\Event listenEvents(array $events) 批量注册事件监听
+ * @method static \think\Event listen(string $event, mixed $listener, bool $first = false) 注册事件监听
+ * @method static bool hasListener(string $event) 是否存在事件监听
+ * @method static void remove(string $event) 移除事件监听
+ * @method static \think\Event bind(array $events) 指定事件别名标识 便于调用
+ * @method static \think\Event subscribe(mixed $subscriber) 注册事件订阅者
+ * @method static \think\Event observe(string|object $observer, null|string $prefix = '') 自动注册事件观察者
+ * @method static mixed trigger(string|object $event, mixed $params = null, bool $once = false) 触发事件
+ * @method static mixed until($event, $params = null) 触发事件(只获取一个有效返回值)
  */
 class Event extends Facade
 {

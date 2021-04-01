@@ -59,7 +59,7 @@ abstract class Make extends Command
 
         return str_replace(['{%className%}', '{%actionSuffix%}', '{%namespace%}', '{%app_namespace%}'], [
             $class,
-            $this->app->cache->config('action_suffix'),
+            $this->app->config->get('route.action_suffix'),
             $namespace,
             $this->app->getNamespace(),
         ], $stub);
@@ -79,7 +79,7 @@ abstract class Make extends Command
         }
 
         if (strpos($name, '@')) {
-            list($app, $name) = explode('@', $name);
+            [$app, $name] = explode('@', $name);
         } else {
             $app = '';
         }

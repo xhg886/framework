@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -16,29 +16,34 @@ use think\Facade;
 
 /**
  * @see \think\App
+ * @package think\facade
  * @mixin \think\App
- * @method \think\App debug(bool $debug) static 设置应用调试模式
- * @method \think\App setNamespace(string $namespace) static 设置应用的命名空间
- * @method void initialize() static 初始化应用
- * @method string parseClass(string $layer, string $name) static 解析应用类的类名
- * @method string version() static 获取框架版本
- * @method bool isDebug() static 是否为调试模式
- * @method bool runningInConsole() static 是否运行在CLI模式
- * @method string getRootPath() static 获取应用根目录
- * @method string getBasePath() static 获取应用基础目录
- * @method string getAppPath() static 获取应用类库目录
- * @method string getRuntimePath() static 获取应用运行时目录
- * @method string getThinkPath() static 获取核心框架目录
- * @method string getConfigPath() static 获取应用配置目录
- * @method string getConfigExt() static 获取配置后缀
- * @method string getNamespace() static 获取应用类库命名空间
- * @method float getBeginTime() static 获取应用开启时间
- * @method integer getBeginMem() static 获取应用初始内存占用
- * @method string serialize(mixed $data) static 序列化数据
- * @method mixed unserialize(string $data) static 解序列化
- * @method string classBaseName(mixed $class) static 获取类名(不包含命名空间)
- * @method mixed factory(string $name, string $namespace = '', ...$args) static 工厂方法
- * @method string parseName(string $name = null, int $type = 0, bool $ucfirst = true) static 字符串命名风格转换
+ * @method static \think\Service|null register(\think\Service|string $service, bool $force = false) 注册服务
+ * @method static mixed bootService(\think\Service $service) 执行服务
+ * @method static \think\Service|null getService(string|\think\Service $service) 获取服务
+ * @method static \think\App debug(bool $debug = true) 开启应用调试模式
+ * @method static bool isDebug() 是否为调试模式
+ * @method static \think\App setNamespace(string $namespace) 设置应用命名空间
+ * @method static string getNamespace() 获取应用类库命名空间
+ * @method static string version() 获取框架版本
+ * @method static string getRootPath() 获取应用根目录
+ * @method static string getBasePath() 获取应用基础目录
+ * @method static string getAppPath() 获取当前应用目录
+ * @method static mixed setAppPath(string $path) 设置应用目录
+ * @method static string getRuntimePath() 获取应用运行时目录
+ * @method static void setRuntimePath(string $path) 设置runtime目录
+ * @method static string getThinkPath() 获取核心框架目录
+ * @method static string getConfigPath() 获取应用配置目录
+ * @method static string getConfigExt() 获取配置后缀
+ * @method static float getBeginTime() 获取应用开启时间
+ * @method static integer getBeginMem() 获取应用初始内存占用
+ * @method static \think\App initialize() 初始化应用
+ * @method static bool initialized() 是否初始化过
+ * @method static void loadLangPack(string $langset) 加载语言包
+ * @method static void boot() 引导应用
+ * @method static void loadEvent(array $event) 注册应用事件
+ * @method static string parseClass(string $layer, string $name) 解析应用类的类名
+ * @method static bool runningInConsole() 是否运行在命令行下
  */
 class App extends Facade
 {

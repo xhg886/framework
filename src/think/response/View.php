@@ -2,24 +2,80 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
+declare (strict_types = 1);
 
 namespace think\response;
 
+use think\Cookie;
 use think\Response;
+use think\View as BaseView;
 
+/**
+ * View Response
+ */
 class View extends Response
 {
-    // 输出参数
+    /**
+     * 输出参数
+     * @var array
+     */
     protected $options = [];
-    protected $vars    = [];
+
+    /**
+     * 输出变量
+     * @var array
+     */
+    protected $vars = [];
+
+    /**
+     * 输出过滤
+     * @var mixed
+     */
     protected $filter;
+
+    /**
+     * 输出type
+     * @var string
+     */
     protected $contentType = 'text/html';
+
+    /**
+     * View对象
+     * @var BaseView
+     */
+    protected $view;
+
+    /**
+     * 是否内容渲染
+     * @var bool
+     */
+    protected $isContent = false;
+
+    public function __construct(Cookie $cookie, BaseView $view, $data = '', int $code = 200)
+    {
+        $this->init($data, $code);
+
+        $this->cookie = $cookie;
+        $this->view   = $view;
+    }
+
+    /**
+     * 设置是否为内容渲染
+     * @access public
+     * @param  bool $content
+     * @return $this
+     */
+    public function isContent(bool $content = true)
+    {
+        $this->isContent = $content;
+        return $this;
+    }
 
     /**
      * 处理数据
@@ -30,9 +86,10 @@ class View extends Response
     protected function output($data): string
     {
         // 渲染模板输出
-        return \think\facade\View::filter($this->filter)
-            ->assign($this->vars)
-            ->fetch($data);
+        $this->view->filter($this->filter);
+        return $this->isContent ?
+        $this->view->display($data, $this->vars) :
+        $this->view->fetch($data, $this->vars);
     }
 
     /**
@@ -53,12 +110,17 @@ class View extends Response
     /**
      * 模板变量赋值
      * @access public
-     * @param  array $vars  变量
+     * @param  string|array $name  模板变量
+     * @param  mixed        $value 变量值
      * @return $this
      */
-    public function assign(array $vars)
+    public function assign($name, $value = null)
     {
-        $this->vars = array_merge($this->vars, $vars);
+        if (is_array($name)) {
+            $this->vars = array_merge($this->vars, $name);
+        } else {
+            $this->vars[$name] = $value;
+        }
 
         return $this;
     }
@@ -83,7 +145,7 @@ class View extends Response
      */
     public function exists(string $name): bool
     {
-        return \think\facade\View::exists($name);
+        return $this->view->exists($name);
     }
 
 }

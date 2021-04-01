@@ -2,12 +2,13 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
+declare (strict_types = 1);
 
 namespace think\facade;
 
@@ -15,14 +16,12 @@ use think\Facade;
 
 /**
  * @see \think\Config
+ * @package think\facade
  * @mixin \think\Config
- * @method array load(string $file, string $name = '') static 加载配置文件
- * @method bool has(string $name) static 检测配置是否存在
- * @method mixed get(string $name,mixed $default = null) static 获取配置参数
- * @method array set(array $config, string $name = null) static 批量设置配置参数
- * @method array reset(string $name ='') static 重置配置参数
- * @method void remove(string $name = '') static 移除配置
- * @method void setYaconf(mixed $yaconf) static 设置开启Yaconf 或者指定配置文件名
+ * @method static array load(string $file, string $name = '') 加载配置文件（多种格式）
+ * @method static bool has(string $name) 检测配置是否存在
+ * @method static mixed get(string $name = null, mixed $default = null) 获取配置参数 为空则获取所有配置
+ * @method static array set(array $config, string $name = null) 设置配置参数 name为数组则为批量设置
  */
 class Config extends Facade
 {

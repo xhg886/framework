@@ -10,51 +10,55 @@
 // +----------------------------------------------------------------------
 namespace think\console\command\optimize;
 
+use Exception;
 use think\console\Command;
 use think\console\Input;
 use think\console\input\Argument;
 use think\console\input\Option;
 use think\console\Output;
+use think\db\PDOConnection;
 
 class Schema extends Command
 {
     protected function configure()
     {
         $this->setName('optimize:schema')
-            ->addArgument('app', Argument::OPTIONAL, 'app name .')
-            ->addOption('db', null, Option::VALUE_REQUIRED, 'db name .')
+            ->addArgument('dir', Argument::OPTIONAL, 'dir name .')
+            ->addOption('connection', null, Option::VALUE_REQUIRED, 'connection name .')
             ->addOption('table', null, Option::VALUE_REQUIRED, 'table name .')
             ->setDescription('Build database schema cache.');
     }
 
     protected function execute(Input $input, Output $output)
     {
-        if ($input->getArgument('app')) {
-            $runtimePath = $this->app->getRootPath() . 'runtime' . DIRECTORY_SEPARATOR . $input->getArgument('app') . DIRECTORY_SEPARATOR;
-            $appPath     = $this->app->getBasePath() . $input->getArgument('app') . DIRECTORY_SEPARATOR;
-            $namespace   = $this->app->getNamespace() . '\\' . $input->getArgument('app');
-        } else {
-            $runtimePath = $this->app->getRuntimePath();
-            $appPath     = $this->app->getBasePath();
-            $namespace   = $this->app->getNamespace();
-        }
-
-        $schemaPath = $runtimePath . 'schema' . DIRECTORY_SEPARATOR;
-        if (!is_dir($schemaPath)) {
-            mkdir($schemaPath, 0755, true);
-        }
+        $dir = $input->getArgument('dir') ?: '';
 
         if ($input->hasOption('table')) {
+            $connection = $this->app->db->connect($input->getOption('connection'));
+            if (!$connection instanceof PDOConnection) {
+                $output->error("only PDO connection support schema cache!");
+                return;
+            }
             $table = $input->getOption('table');
             if (false === strpos($table, '.')) {
-                $dbName = $this->app->db->getConfig('database');
+                $dbName = $connection->getConfig('database');
+            } else {
+                [$dbName, $table] = explode('.', $table);
             }
 
-            $tables[] = $table;
-        } elseif ($input->hasOption('db')) {
-            $dbName = $input->getOption('db');
-            $tables = $this->app->db->getConnection()->getTables($dbName);
+            if ($table == '*') {
+                $table = $connection->getTables($dbName);
+            }
+
+            $this->buildDataBaseSchema($connection, (array) $table, $dbName);
         } else {
+            if ($dir) {
+                $appPath   = $this->app->getBasePath() . $dir . DIRECTORY_SEPARATOR;
+                $namespace = 'app\\' . $dir;
+            } else {
+                $appPath   = $this->app->getBasePath();
+                $namespace = 'app';
+            }
 
             $path = $appPath . 'model';
             $list = is_dir($path) ? scandir($path) : [];
@@ -64,46 +68,37 @@ class Schema extends Command
                     continue;
                 }
                 $class = '\\' . $namespace . '\\model\\' . pathinfo($file, PATHINFO_FILENAME);
-                $this->buildModelSchema($schemaPath, $class);
+                $this->buildModelSchema($class);
             }
-
-            $output->writeln('<info>Succeed!</info>');
-            return;
         }
-
-        $db = isset($dbName) ? $dbName . '.' : '';
-        $this->buildDataBaseSchema($schemaPath, $tables, $db);
 
         $output->writeln('<info>Succeed!</info>');
     }
 
-    protected function buildModelSchema(string $path, string $class): void
+    protected function buildModelSchema(string $class): void
     {
         $reflect = new \ReflectionClass($class);
         if (!$reflect->isAbstract() && $reflect->isSubclassOf('\think\Model')) {
-            $table   = $class::getTable();
-            $dbName  = $class::getConfig('database');
-            $content = '<?php ' . PHP_EOL . 'return ';
-            $info    = $class::getConnection()->getFields($table);
-            $content .= var_export($info, true) . ';';
+            try {
+                /** @var \think\Model $model */
+                $model      = new $class;
+                $connection = $model->db()->getConnection();
+                if ($connection instanceof PDOConnection) {
+                    $table = $model->getTable();
+                    //预读字段信息
+                    $connection->getSchemaInfo($table, true);
+                }
+            } catch (Exception $e) {
 
-            file_put_contents($path . $dbName . '.' . $table . '.php', $content);
+            }
         }
     }
 
-    protected function buildDataBaseSchema(string $path, array $tables, string $db): void
+    protected function buildDataBaseSchema(PDOConnection $connection, array $tables, string $dbName): void
     {
-        if ('' == $db) {
-            $dbName = $this->app->db->getConfig('database') . '.';
-        } else {
-            $dbName = $db;
-        }
-
         foreach ($tables as $table) {
-            $content = '<?php ' . PHP_EOL . 'return ';
-            $info    = $this->app->db->getConnection()->getFields($db . $table);
-            $content .= var_export($info, true) . ';';
-            file_put_contents($path . $dbName . $table . '.php', $content);
+            //预读字段信息
+            $connection->getSchemaInfo("{$dbName}.{$table}", true);
         }
     }
 }

@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -12,10 +12,16 @@ declare (strict_types = 1);
 
 namespace think;
 
+use Closure;
 use InvalidArgumentException;
 use LogicException;
-use think\exception\HttpResponseException;
+use think\exception\Handle;
+use Throwable;
 
+/**
+ * 中间件管理类
+ * @package think
+ */
 class Middleware
 {
     /**
@@ -25,36 +31,24 @@ class Middleware
     protected $queue = [];
 
     /**
-     * 配置
-     * @var array
+     * 应用对象
+     * @var App
      */
-    protected $config = [
-        'default_namespace' => 'app\\http\\middleware\\',
-    ];
+    protected $app;
 
-    public function __construct(array $config = [])
+    public function __construct(App $app)
     {
-        $this->config = array_merge($this->config, $config);
-    }
-
-    public static function __make(Config $config)
-    {
-        return new static($config->get('middleware'));
-    }
-
-    public function setConfig(array $config): void
-    {
-        $this->config = array_merge($this->config, $config);
+        $this->app = $app;
     }
 
     /**
      * 导入中间件
      * @access public
-     * @param  array  $middlewares
-     * @param  string $type  中间件类型
+     * @param array  $middlewares
+     * @param string $type 中间件类型
      * @return void
      */
-    public function import(array $middlewares = [], string $type = 'route'): void
+    public function import(array $middlewares = [], string $type = 'global'): void
     {
         foreach ($middlewares as $middleware) {
             $this->add($middleware, $type);
@@ -64,27 +58,35 @@ class Middleware
     /**
      * 注册中间件
      * @access public
-     * @param  mixed  $middleware
-     * @param  string $type  中间件类型
+     * @param mixed  $middleware
+     * @param string $type 中间件类型
      * @return void
      */
-    public function add($middleware, string $type = 'route'): void
+    public function add($middleware, string $type = 'global'): void
     {
-        if (is_null($middleware)) {
-            return;
-        }
-
         $middleware = $this->buildMiddleware($middleware, $type);
 
-        if ($middleware) {
+        if (!empty($middleware)) {
             $this->queue[$type][] = $middleware;
+            $this->queue[$type]   = array_unique($this->queue[$type], SORT_REGULAR);
         }
+    }
+
+    /**
+     * 注册路由中间件
+     * @access public
+     * @param mixed $middleware
+     * @return void
+     */
+    public function route($middleware): void
+    {
+        $this->add($middleware, 'route');
     }
 
     /**
      * 注册控制器中间件
      * @access public
-     * @param  mixed  $middleware
+     * @param mixed $middleware
      * @return void
      */
     public function controller($middleware): void
@@ -93,20 +95,20 @@ class Middleware
     }
 
     /**
-     * 移除中间件
+     * 注册中间件到开始位置
      * @access public
-     * @param  mixed  $middleware
-     * @param  string $type  中间件类型
+     * @param mixed  $middleware
+     * @param string $type 中间件类型
      */
-    public function unshift($middleware, string $type = 'route')
+    public function unshift($middleware, string $type = 'global')
     {
-        if (is_null($middleware)) {
-            return;
-        }
-
         $middleware = $this->buildMiddleware($middleware, $type);
 
         if (!empty($middleware)) {
+            if (!isset($this->queue[$type])) {
+                $this->queue[$type] = [];
+            }
+
             array_unshift($this->queue[$type], $middleware);
         }
     }
@@ -114,51 +116,101 @@ class Middleware
     /**
      * 获取注册的中间件
      * @access public
-     * @param  string $type  中间件类型
+     * @param string $type 中间件类型
+     * @return array
      */
-    public function all(string $type = 'route'): array
+    public function all(string $type = 'global'): array
     {
         return $this->queue[$type] ?? [];
     }
 
     /**
-     * 中间件调度
+     * 调度管道
      * @access public
-     * @param  Request  $request
-     * @param  string   $type  中间件类型
+     * @param string $type 中间件类型
+     * @return Pipeline
      */
-    public function dispatch(Request $request, string $type = 'route')
+    public function pipeline(string $type = 'global')
     {
-        return call_user_func($this->resolve($type), $request);
+        return (new Pipeline())
+            ->through(array_map(function ($middleware) {
+                return function ($request, $next) use ($middleware) {
+                    [$call, $params] = $middleware;
+                    if (is_array($call) && is_string($call[0])) {
+                        $call = [$this->app->make($call[0]), $call[1]];
+                    }
+                    $response = call_user_func($call, $request, $next, ...$params);
+
+                    if (!$response instanceof Response) {
+                        throw new LogicException('The middleware must return Response instance');
+                    }
+                    return $response;
+                };
+            }, $this->sortMiddleware($this->queue[$type] ?? [])))
+            ->whenException([$this, 'handleException']);
+    }
+
+    /**
+     * 结束调度
+     * @param Response $response
+     */
+    public function end(Response $response)
+    {
+        foreach ($this->queue as $queue) {
+            foreach ($queue as $middleware) {
+                [$call] = $middleware;
+                if (is_array($call) && is_string($call[0])) {
+                    $instance = $this->app->make($call[0]);
+                    if (method_exists($instance, 'end')) {
+                        $instance->end($response);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * 异常处理
+     * @param Request   $passable
+     * @param Throwable $e
+     * @return Response
+     */
+    public function handleException($passable, Throwable $e)
+    {
+        /** @var Handle $handler */
+        $handler = $this->app->make(Handle::class);
+
+        $handler->report($e);
+
+        return $handler->render($passable, $e);
     }
 
     /**
      * 解析中间件
      * @access protected
-     * @param  mixed  $middleware
-     * @param  string $type  中间件类型
+     * @param mixed  $middleware
+     * @param string $type 中间件类型
      * @return array
      */
-    protected function buildMiddleware($middleware, string $type = 'route'): array
+    protected function buildMiddleware($middleware, string $type): array
     {
         if (is_array($middleware)) {
-            list($middleware, $param) = $middleware;
+            [$middleware, $params] = $middleware;
         }
 
-        if ($middleware instanceof \Closure) {
-            return [$middleware, $param ?? null];
+        if ($middleware instanceof Closure) {
+            return [$middleware, $params ?? []];
         }
 
         if (!is_string($middleware)) {
             throw new InvalidArgumentException('The middleware is invalid');
         }
 
-        if (false === strpos($middleware, '\\')) {
-            if (isset($this->config[$middleware])) {
-                $middleware = $this->config[$middleware];
-            } else {
-                $middleware = $this->config['default_namespace'] . $middleware;
-            }
+        //中间件别名检查
+        $alias = $this->app->config->get('middleware.alias', []);
+
+        if (isset($alias[$middleware])) {
+            $middleware = $alias[$middleware];
         }
 
         if (is_array($middleware)) {
@@ -166,36 +218,40 @@ class Middleware
             return [];
         }
 
-        if (strpos($middleware, ':')) {
-            list($middleware, $param) = explode(':', $middleware, 2);
-        }
-
-        return [[Container::pull($middleware), 'handle'], $param ?? null];
+        return [[$middleware, 'handle'], $params ?? []];
     }
 
-    protected function resolve(string $type = 'route')
+    /**
+     * 中间件排序
+     * @param array $middlewares
+     * @return array
+     */
+    protected function sortMiddleware(array $middlewares)
     {
-        return function (Request $request) use ($type) {
-            $middleware = array_shift($this->queue[$type]);
+        $priority = $this->app->config->get('middleware.priority', []);
+        uasort($middlewares, function ($a, $b) use ($priority) {
+            $aPriority = $this->getMiddlewarePriority($priority, $a);
+            $bPriority = $this->getMiddlewarePriority($priority, $b);
+            return $bPriority - $aPriority;
+        });
 
-            if (null === $middleware) {
-                throw new InvalidArgumentException('The queue was exhausted, with no response returned');
-            }
+        return $middlewares;
+    }
 
-            list($call, $param) = $middleware;
-
-            try {
-                $response = call_user_func_array($call, [$request, $this->resolve($type), $param]);
-            } catch (HttpResponseException $exception) {
-                $response = $exception->getResponse();
-            }
-
-            if (!$response instanceof Response) {
-                throw new LogicException('The middleware must return Response instance');
-            }
-
-            return $response;
-        };
+    /**
+     * 获取中间件优先级
+     * @param $priority
+     * @param $middleware
+     * @return int
+     */
+    protected function getMiddlewarePriority($priority, $middleware)
+    {
+        [$call] = $middleware;
+        if (is_array($call) && is_string($call[0])) {
+            $index = array_search($call[0], array_reverse($priority));
+            return false === $index ? -1 : $index;
+        }
+        return -1;
     }
 
 }

@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -12,22 +12,25 @@ declare (strict_types = 1);
 
 namespace think\route\dispatch;
 
-use think\App;
 use think\exception\HttpException;
+use think\helper\Str;
 use think\Request;
 use think\route\Rule;
 
+/**
+ * Url Dispatcher
+ */
 class Url extends Controller
 {
 
-    public function __construct(Request $request, Rule $rule, $dispatch, array $param = [], int $code = null)
+    public function __construct(Request $request, Rule $rule, $dispatch)
     {
         $this->request = $request;
         $this->rule    = $rule;
         // 解析默认的URL规则
         $dispatch = $this->parseUrl($dispatch);
 
-        parent::__construct($request, $rule, $dispatch, $param, $code);
+        parent::__construct($request, $rule, $dispatch, $this->param);
     }
 
     /**
@@ -43,11 +46,11 @@ class Url extends Controller
 
         if ($bind && preg_match('/^[a-z]/is', $bind)) {
             $bind = str_replace('/', $depr, $bind);
-            // 如果有模块/控制器绑定
+            // 如果有域名绑定
             $url = $bind . ('.' != substr($bind, -1) ? $depr : '') . ltrim($url, $depr);
         }
 
-        list($path, $var) = $this->rule->parseUrlPath($url);
+        $path = $this->rule->parseUrlPath($url);
         if (empty($path)) {
             return [null, null];
         }
@@ -55,12 +58,13 @@ class Url extends Controller
         // 解析控制器
         $controller = !empty($path) ? array_shift($path) : null;
 
-        if ($controller && !preg_match('/^[A-Za-z][\w|\.]*$/', $controller)) {
+        if ($controller && !preg_match('/^[A-Za-z0-9][\w|\.]*$/', $controller)) {
             throw new HttpException(404, 'controller not exists:' . $controller);
         }
 
         // 解析操作
         $action = !empty($path) ? array_shift($path) : null;
+        $var    = [];
 
         // 解析额外参数
         if ($path) {
@@ -76,7 +80,7 @@ class Url extends Controller
         }
 
         // 设置当前请求的参数
-        $this->request->setRoute($var);
+        $this->param = $var;
 
         // 封装路由
         $route = [$controller, $action];
@@ -96,10 +100,10 @@ class Url extends Controller
      */
     protected function hasDefinedRoute(array $route): bool
     {
-        list($controller, $action) = $route;
+        [$controller, $action] = $route;
 
         // 检查地址是否被定义过路由
-        $name = strtolower(App::parseName($controller, 1) . '/' . $action);
+        $name = strtolower(Str::studly($controller) . '/' . $action);
 
         $host   = $this->request->host(true);
         $method = $this->request->method();

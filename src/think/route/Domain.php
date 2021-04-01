@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -12,13 +12,15 @@ declare (strict_types = 1);
 
 namespace think\route;
 
-use think\App;
-use think\Container;
+use think\helper\Str;
 use think\Request;
 use think\Route;
 use think\route\dispatch\Callback as CallbackDispatch;
 use think\route\dispatch\Controller as ControllerDispatch;
 
+/**
+ * 域名路由
+ */
 class Domain extends RuleGroup
 {
     /**
@@ -28,7 +30,7 @@ class Domain extends RuleGroup
      * @param  string      $name     路由域名
      * @param  mixed       $rule     域名路由
      */
-    public function __construct(Route $router, string $name = '', $rule = null)
+    public function __construct(Route $router, string $name = null, $rule = null)
     {
         $this->router = $router;
         $this->domain = $name;
@@ -55,12 +57,6 @@ class Domain extends RuleGroup
 
         if (false !== $result) {
             return $result;
-        }
-
-        // 添加域名中间件
-        if (!empty($this->option['middleware'])) {
-            Container::pull('middleware')->import($this->option['middleware']);
-            unset($this->option['middleware']);
         }
 
         return parent::check($request, $url, $completeMatch);
@@ -93,9 +89,6 @@ class Domain extends RuleGroup
         if ($bind) {
             $this->parseBindAppendParam($bind);
 
-            // 记录绑定信息
-            Container::pull('log')->record('[ BIND ] ' . var_export($bind, true));
-
             // 如果有URL绑定 则进行绑定检测
             $type = substr($bind, 0, 1);
             $bind = substr($bind, 1);
@@ -117,7 +110,7 @@ class Domain extends RuleGroup
     protected function parseBindAppendParam(string &$bind): void
     {
         if (false !== strpos($bind, '?')) {
-            list($bind, $query) = explode('?', $bind);
+            [$bind, $query] = explode('?', $bind);
             parse_str($query, $vars);
             $this->append($vars);
         }
@@ -163,7 +156,7 @@ class Domain extends RuleGroup
             $this->parseUrlParams($array[2], $param);
         }
 
-        return new CallbackDispatch($request, $this, [$namespace . '\\' . App::parseName($class, 1), $method], $param);
+        return new CallbackDispatch($request, $this, [$namespace . '\\' . Str::studly($class), $method], $param);
     }
 
     /**

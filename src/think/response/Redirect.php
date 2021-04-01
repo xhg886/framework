@@ -2,29 +2,36 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
+declare (strict_types = 1);
 
 namespace think\response;
 
-use think\Container;
+use think\Cookie;
+use think\Request;
 use think\Response;
+use think\Session;
 
+/**
+ * Redirect Response
+ */
 class Redirect extends Response
 {
 
-    protected $options = [];
+    protected $request;
 
-    // URL参数
-    protected $params = [];
-
-    public function __construct($data = '', int $code = 302)
+    public function __construct(Cookie $cookie, Request $request, Session $session, $data = '', int $code = 302)
     {
-        parent::__construct($data, $code);
+        $this->init((string) $data, $code);
+
+        $this->cookie  = $cookie;
+        $this->request = $request;
+        $this->session = $session;
 
         $this->cacheControl('no-cache,must-revalidate');
     }
@@ -37,7 +44,7 @@ class Redirect extends Response
      */
     protected function output($data): string
     {
-        $this->header['Location'] = $this->getTargetUrl();
+        $this->header['Location'] = $data;
 
         return '';
     }
@@ -51,36 +58,13 @@ class Redirect extends Response
      */
     public function with($name, $value = null)
     {
-        $session = Container::pull('session');
-
         if (is_array($name)) {
             foreach ($name as $key => $val) {
-                $session->flash($key, $val);
+                $this->session->flash($key, $val);
             }
         } else {
-            $session->flash($name, $value);
+            $this->session->flash($name, $value);
         }
-
-        return $this;
-    }
-
-    /**
-     * 获取跳转地址
-     * @access public
-     * @return string
-     */
-    public function getTargetUrl()
-    {
-        if (strpos($this->data, '://') || (0 === strpos($this->data, '/') && empty($this->params))) {
-            return $this->data;
-        } else {
-            return Container::pull('route')->buildUrl($this->data, $this->params);
-        }
-    }
-
-    public function params($params = [])
-    {
-        $this->params = $params;
 
         return $this;
     }
@@ -92,7 +76,7 @@ class Redirect extends Response
      */
     public function remember()
     {
-        Container::pull('session')->set('redirect_url', Container::pull('request')->url());
+        $this->session->set('redirect_url', $this->request->url());
 
         return $this;
     }
@@ -104,11 +88,9 @@ class Redirect extends Response
      */
     public function restore()
     {
-        $session = Container::pull('session');
-
-        if ($session->has('redirect_url')) {
-            $this->data = $session->get('redirect_url');
-            $session->delete('redirect_url');
+        if ($this->session->has('redirect_url')) {
+            $this->data = $this->session->get('redirect_url');
+            $this->session->delete('redirect_url');
         }
 
         return $this;

@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -15,16 +15,20 @@ namespace think\middleware;
 use Closure;
 use think\App;
 use think\Request;
+use think\Response;
 use think\Session;
 
+/**
+ * Session初始化
+ */
 class SessionInit
 {
 
-    /** @var Session */
-    protected $session;
-
     /** @var App */
     protected $app;
+
+    /** @var Session */
+    protected $session;
 
     public function __construct(App $app, Session $session)
     {
@@ -37,29 +41,40 @@ class SessionInit
      * @access public
      * @param Request $request
      * @param Closure $next
-     * @return void
+     * @return Response
      */
     public function handle($request, Closure $next)
     {
         // Session初始化
-        $varSessionId = $this->app->config->get('route.var_session_id');
+        $varSessionId = $this->app->config->get('session.var_session_id');
+        $cookieName   = $this->session->getName();
 
         if ($varSessionId && $request->request($varSessionId)) {
-            $this->session->setId($request->request($varSessionId));
+            $sessionId = $request->request($varSessionId);
         } else {
-            $cookieName = $this->app->config->get('session.cookie_name', 'PHPSESSID');
-            $sessionId  = $request->cookie($cookieName) ?: '';
+            $sessionId = $request->cookie($cookieName);
+        }
+
+        if ($sessionId) {
             $this->session->setId($sessionId);
         }
 
+        $this->session->init();
+
         $request->withSession($this->session);
 
+        /** @var Response $response */
         $response = $next($request);
 
-        if (isset($cookieName)) {
-            $this->app->cookie->set($cookieName, $this->session->getId());
-        }
+        $response->setSession($this->session);
+
+        $this->app->cookie->set($cookieName, $this->session->getId());
 
         return $response;
+    }
+
+    public function end(Response $response)
+    {
+        $this->session->save();
     }
 }

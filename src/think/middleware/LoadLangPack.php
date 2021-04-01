@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2019 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -16,20 +16,21 @@ use Closure;
 use think\App;
 use think\Lang;
 use think\Request;
+use think\Response;
 
+/**
+ * 多语言加载
+ */
 class LoadLangPack
 {
-
-    /** @var Lang */
-    protected $lang;
-
-    /** @var App */
     protected $app;
 
-    public function __construct(Lang $lang, App $app)
+    protected $lang;
+
+    public function __construct(App $app, Lang $lang)
     {
-        $this->lang = $lang;
         $this->app  = $app;
+        $this->lang = $lang;
     }
 
     /**
@@ -37,25 +38,23 @@ class LoadLangPack
      * @access public
      * @param Request $request
      * @param Closure $next
-     * @return void
+     * @return Response
      */
     public function handle($request, Closure $next)
     {
-        // 读取默认语言
-        $this->lang->range($this->app->config->get('app.default_lang', 'zh-cn'));
+        // 自动侦测当前语言
+        $langset = $this->lang->detect($request);
 
-        if ($this->app->config->get('app.lang_switch_on', false)) {
-            // 开启多语言机制 检测当前语言
-            $this->lang->detect();
+        if ($this->lang->defaultLangSet() != $langset) {
+            // 加载系统语言包
+            $this->lang->load([
+                $this->app->getThinkPath() . 'lang' . DIRECTORY_SEPARATOR . $langset . '.php',
+            ]);
+
+            $this->app->LoadLangPack($langset);
         }
 
-        $request->setLangset($this->lang->range());
-
-        // 加载系统语言包
-        $this->lang->load([
-            $this->app->getThinkPath() . 'lang' . DIRECTORY_SEPARATOR . $request->langset() . '.php',
-            $this->app->getAppPath() . 'lang' . DIRECTORY_SEPARATOR . $request->langset() . '.php',
-        ]);
+        $this->lang->saveToCookie($this->app->cookie);
 
         return $next($request);
     }

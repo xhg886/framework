@@ -16,6 +16,7 @@ use think\console\input\Argument;
 use think\console\input\Option;
 use think\console\Output;
 use think\console\Table;
+use think\event\RouteLoaded;
 
 class RouteList extends Command
 {
@@ -30,7 +31,7 @@ class RouteList extends Command
     protected function configure()
     {
         $this->setName('route:list')
-            ->addArgument('app', Argument::OPTIONAL, 'app name .')
+            ->addArgument('dir', Argument::OPTIONAL, 'dir name .')
             ->addArgument('style', Argument::OPTIONAL, "the style of the table.", 'default')
             ->addOption('sort', 's', Option::VALUE_OPTIONAL, 'order by rule name.', 0)
             ->addOption('more', 'm', Option::VALUE_NONE, 'show route options.')
@@ -39,29 +40,27 @@ class RouteList extends Command
 
     protected function execute(Input $input, Output $output)
     {
-        $app = $input->getArgument('app');
+        $dir = $input->getArgument('dir') ?: '';
 
-        if ($this->app->http->isMulti() && $app) {
-            $filename = $this->app->getRootPath() . 'runtime' . DIRECTORY_SEPARATOR . $app . DIRECTORY_SEPARATOR . 'route_list_' . $app . '.php';
-        } else {
-            $filename = $this->app->getRuntimePath() . 'route_list.php';
-        }
+        $filename = $this->app->getRootPath() . 'runtime' . DIRECTORY_SEPARATOR . ($dir ? $dir . DIRECTORY_SEPARATOR : '') . 'route_list.php';
 
         if (is_file($filename)) {
             unlink($filename);
+        } elseif (!is_dir(dirname($filename))) {
+            mkdir(dirname($filename), 0755);
         }
 
-        $content = $this->getRouteList($app);
+        $content = $this->getRouteList($dir);
         file_put_contents($filename, 'Route List' . PHP_EOL . $content);
     }
 
-    protected function getRouteList(string $app = null): string
+    protected function getRouteList(string $dir = null): string
     {
         $this->app->route->setTestMode(true);
         $this->app->route->clear();
 
-        if ($this->app->http->isMulti() && $app) {
-            $path = $this->app->getRootPath() . 'route' . DIRECTORY_SEPARATOR . $app . DIRECTORY_SEPARATOR;
+        if ($dir) {
+            $path = $this->app->getRootPath() . 'route' . DIRECTORY_SEPARATOR . $dir . DIRECTORY_SEPARATOR;
         } else {
             $path = $this->app->getRootPath() . 'route' . DIRECTORY_SEPARATOR;
         }
@@ -74,16 +73,15 @@ class RouteList extends Command
             }
         }
 
-        if ($this->app->config->get('route.route_annotation')) {
-            include $this->app->build->buildRoute();
-        }
+        //触发路由载入完成事件
+        $this->app->event->trigger(RouteLoaded::class);
 
         $table = new Table();
 
         if ($this->input->hasOption('more')) {
             $header = ['Rule', 'Route', 'Method', 'Name', 'Domain', 'Option', 'Pattern'];
         } else {
-            $header = ['Rule', 'Route', 'Method', 'Name', 'Domain'];
+            $header = ['Rule', 'Route', 'Method', 'Name'];
         }
 
         $table->setHeader($header);
@@ -91,22 +89,20 @@ class RouteList extends Command
         $routeList = $this->app->route->getRuleList();
         $rows      = [];
 
-        foreach ($routeList as $domain => $items) {
-            foreach ($items as $item) {
-                $item['route'] = $item['route'] instanceof \Closure ? '<Closure>' : $item['route'];
+        foreach ($routeList as $item) {
+            $item['route'] = $item['route'] instanceof \Closure ? '<Closure>' : $item['route'];
 
-                if ($this->input->hasOption('more')) {
-                    $item = [$item['rule'], $item['route'], $item['method'], $item['name'], $domain, json_encode($item['option']), json_encode($item['pattern'])];
-                } else {
-                    $item = [$item['rule'], $item['route'], $item['method'], $item['name'], $domain];
-                }
-
-                $rows[] = $item;
+            if ($this->input->hasOption('more')) {
+                $item = [$item['rule'], $item['route'], $item['method'], $item['name'], $item['domain'], json_encode($item['option']), json_encode($item['pattern'])];
+            } else {
+                $item = [$item['rule'], $item['route'], $item['method'], $item['name']];
             }
+
+            $rows[] = $item;
         }
 
         if ($this->input->getOption('sort')) {
-            $sort = $this->input->getOption('sort');
+            $sort = strtolower($this->input->getOption('sort'));
 
             if (isset($this->sortBy[$sort])) {
                 $sort = $this->sortBy[$sort];
